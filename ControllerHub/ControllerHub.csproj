@@ -22,6 +22,8 @@
   <ItemGroup>
     <!-- Manette virtuelle Xbox 360 : nécessite le pilote ViGEmBus installé sur Windows -->
     <PackageReference Include="Nefarius.ViGEm.Client" Version="1.21.256" />
+    <!-- Lecture HID directe de la DualSense (croix directionnelle, sticks) -->
+    <PackageReference Include="HidSharp" Version="2.1.0" />
   </ItemGroup>
 
   <ItemGroup>

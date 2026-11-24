@@ -13,8 +13,11 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _scanTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly DispatcherTimer _readTimer = new() { Interval = TimeSpan.FromMilliseconds(33) };
 
-    private readonly VirtualXbox360 _virtualPad = new();
     private readonly List<MappingProfile> _profiles = LoadProfiles();
+    private readonly PlayerManager _players;
+
+    // Lecture HID réservée au testeur, quand la manette sélectionnée n'est pas un joueur.
+    private readonly DualSenseSession _testerSession = new();
 
     private ControllerEntry? _selected;
     private List<string> _knownIds = new();
@@ -23,8 +26,14 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        _players = new PlayerManager(_profiles);
+
         _scanTimer.Tick += (_, _) => Rescan();
-        _readTimer.Tick += (_, _) => UpdateTester();
+        _readTimer.Tick += (_, _) =>
+        {
+            _players.Tick();
+            UpdateTester();
+        };
 
         Loaded += (_, _) =>
         {
@@ -36,7 +45,8 @@ public partial class MainWindow : Window
         {
             _scanTimer.Stop();
             _readTimer.Stop();
-            _virtualPad.Dispose();
+            _players.Dispose();
+            _testerSession.Dispose();
         };
     }
 
@@ -63,6 +73,12 @@ public partial class MainWindow : Window
 
         _knownIds = ids;
         var previousId = _selected?.Id;
+
+        // Libère les joueurs dont la manette a été débranchée.
+        if (_players.Prune(ids))
+        {
+            RefreshPlayers();
+        }
 
         ControllerList.ItemsSource = entries;
 
@@ -100,6 +116,7 @@ public partial class MainWindow : Window
         PairingText.Text = ControllerDb.PairingHint(_selected.Family);
     }
 
+    /// <summary>Affiche la lecture de la manette sélectionnée. Les états envoyés aux joueurs sont gérés par PlayerManager.</summary>
     private void UpdateTester()
     {
         if (_selected is null)
@@ -107,43 +124,91 @@ public partial class MainWindow : Window
             return;
         }
 
-        TesterText.Text = _service.ReadSnapshot(_selected);
+        var slot = _players.FindSlot(_selected.Id);
+        string? reason;
 
-        if (_virtualPad.IsConnected)
+        if (slot is not null)
         {
-            var state = PadMapper.Read(_selected, _profiles, out var reason);
-            if (state is not null)
-            {
-                _virtualPad.Send(state);
-            }
-            else if (reason is not null)
-            {
-                StatusText.Text = reason;
-            }
+            reason = slot.Reason;
+        }
+        else
+        {
+            PlayerManager.ReadState(_selected, _testerSession, _profiles, out reason);
+        }
+
+        var session = slot?.Session ?? _testerSession;
+        bool isHidDirect = DualSenseSession.Supports(_selected.Family);
+        TesterText.Text = isHidDirect && session.Current is { } reader
+            ? reader.Describe()
+            : _service.ReadSnapshot(_selected);
+
+        if (reason is not null)
+        {
+            StatusText.Text = reason;
         }
     }
 
-    /// <summary>Active ou supprime la manette virtuelle Xbox 360 avec un seul bouton.</summary>
-    private void VirtualPadButton_Click(object sender, RoutedEventArgs e)
+    /// <summary>Recharge la liste des joueurs affichée.</summary>
+    private void RefreshPlayers()
     {
-        if (_virtualPad.IsConnected)
+        PlayerList.ItemsSource = null;
+        PlayerList.ItemsSource = _players.Slots.Where(s => s.IsOccupied).ToList();
+    }
+
+    /// <summary>Ajoute la manette sélectionnée au premier joueur libre.</summary>
+    private void AddPlayer_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selected is null)
         {
-            _virtualPad.Disconnect();
-            VirtualPadButton.Content = "Activer la conversion Xbox 360";
-            StatusText.Text = "Conversion Xbox 360 supprimée";
+            StatusText.Text = "Sélectionnez une manette";
             return;
         }
 
-        try
+        var slot = _players.Assign(_selected, out var error);
+        if (slot is null)
         {
-            _virtualPad.Connect();
-            VirtualPadButton.Content = "Supprimer la conversion Xbox 360";
-            StatusText.Text = "Conversion Xbox 360 active";
+            StatusText.Text = error;
+            return;
         }
-        catch (Exception ex)
+
+        // La manette est désormais lue par son joueur : on libère la lecture du testeur.
+        _testerSession.Close();
+        RefreshPlayers();
+        StatusText.Text = error ?? $"{_selected.Title} ajouté comme P{slot.Number}";
+    }
+
+    /// <summary>Retire le joueur sélectionné dans la liste des joueurs.</summary>
+    private void RemovePlayer_Click(object sender, RoutedEventArgs e)
+    {
+        if (PlayerList.SelectedItem is not PlayerSlot slot)
         {
-            StatusText.Text = $"Échec (ViGEmBus installé ?) : {ex.Message}";
+            StatusText.Text = "Sélectionnez un joueur à retirer";
+            return;
         }
+
+        _players.Unassign(slot);
+        RefreshPlayers();
+        StatusText.Text = $"P{slot.Number} retiré";
+    }
+
+    /// <summary>Active ou supprime la conversion Xbox 360 pour tous les joueurs, avec un seul bouton.</summary>
+    private void VirtualPadButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_players.ConversionEnabled)
+        {
+            _players.SetConversion(false);
+            VirtualPadButton.Content = "Activer la conversion Xbox 360";
+            StatusText.Text = "Conversion Xbox 360 supprimée";
+            RefreshPlayers();
+            return;
+        }
+
+        var error = _players.SetConversion(true);
+        VirtualPadButton.Content = "Supprimer la conversion Xbox 360";
+        StatusText.Text = error is null
+            ? "Conversion Xbox 360 active"
+            : $"Échec (ViGEmBus installé ?) : {error}";
+        RefreshPlayers();
     }
 
     private async void Vibrate_Click(object sender, RoutedEventArgs e)

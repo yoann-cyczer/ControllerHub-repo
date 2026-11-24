@@ -12,7 +12,9 @@
       "LT": 6,
       "RT": 7,
       "LS": 10,
-      "RS": 11
+      "RS": 11,
+      "Back": 8,
+      "Start": 9
     },
     "Axes": {},
     "InvertedAxes": [],
