@@ -12,7 +12,7 @@
     <RootNamespace>ControllerHub</RootNamespace>
     <AssemblyName>ControllerHub</AssemblyName>
     <ApplicationTitle>ControllerHub</ApplicationTitle>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
