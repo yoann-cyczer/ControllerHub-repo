@@ -1,0 +1,15 @@
+# Sorties de build et de publication .NET
+bin/
+obj/
+ControllerHub-exe/
+publish/
+
+# Journaux et archives locales
+build.log
+*.zip
+
+# Fichiers de l'IDE
+.vs/
+.vscode/
+*.user
+*.suo
